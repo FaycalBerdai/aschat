@@ -1,0 +1,614 @@
+#!/bin/bash
+# Fichier : /usr/bin/aschat
+
+#*************************************************************#
+#                         aschat v1.5.2                       #
+#                   écrit par Fayçal Berdai                   #
+#                         Sept. 2016                          #
+# POUR LE HTML :  - Affichage en direct réglé
+#                 - A faire : nouvelle variable TALK
+#                 - creer un id pour image + option correspondante
+#                 - CONVERTIR PAGE EN STATIQUE
+#                 - gérer l'initialisation de la page > fonctions
+# POUR LE CHAT : - DISPLAYTIME A regler
+#
+# Tenter sed -i pour modifier directement le fichier de config#
+#  sed-i sera parfait pour modifier le fichier de logins.     #
+#  Shell script qui permet la communication à via un  fichier #
+#  Requiert d'être placé dans le répértoire ~/bin/            #
+# probleme de redondance si 2x le mot                         #
+#  Sources en fin de fichier.                                 #
+#  AF : -D et revoir affichage heure                          #
+#                            v1.5.2                           #
+#  read ne fonctionne pas si -r mot                           #
+#  Nouvelles options : -C et -D qui permettent la connexion   #
+#  et la déconnection au chat : disconnect est a implémenter  #
+#  Read a été revu, rendant l'argument optionnel              #
+#                            v1.5.1                           #
+#  N'utilise plus configaschat - Plus de latence - save gérée #
+#  Fichier config plus lisible, mais à revoir quand même      #
+#  A faire : - important : (y/n) de l'option -e               #
+#            - changer le mode de sauvegarde ou proposer une  #
+#              option pour lire le fichier correctement       #
+#            - liste d'utilisateurs pour éviter doublons ?    #
+#            - gestion des exceptions + creation fichier logs #
+#            - connect/disconnect du chat qui permet supress- #
+#              ion des fichiers .configaschat, .chat et le    #
+#              retour au shell normal                         #
+#                            v1.4                             #
+#  N'utilise plus configaschat - Plus de latence - save gérée #
+#  Affichage du fichier config à travailler                   #
+#                            v1.3                             #
+#  Sauvegarde pas encore gérée                                #
+#  Un petit temps de latence se fait sentir... --> complexité #
+#                            v1.2                             #
+#  Utilise un autre script nommé configaschat                 #
+#  Début des logs mdr                                         #
+#                                                             #
+#*************************************************************#
+#                                                             #
+#*************************************************************#
+#                     Paramètres par défaut                   #
+#*************************************************************#
+ASCHAT_VERSION="2.0.0"
+DEFAULT_NAVIGATOR="firefox"
+DEFAULT_LINES_CHAT_MAX=150 #Taille tolérée du chat
+DEFAULT_HOST="berdai" #Hôte par défaut, à changer manuellement
+DEFAULT_CHATPATH="/home/berdai/tmp/.chat" #Chemin du chat par défaut
+DEFAULT_HTML_CHATPATH="/home/berdai/tmp/.chat.html"
+DEFAULT_CONFIG_PATH="$HOME/bin/.configChat" #$HOME <=> ~
+HTML_CHATPATH=$DEFAULT_HTML_CHATPATH
+# Paramètres d'affichage                                      #
+# ----------------------------------------------------------- #
+DEFAULT_BORDER_STYLE_1="**"
+DEFAULT_NLINES_DISPLAY=4 # nombres de lignes du chat affichées par défaut
+
+# Paramètres booléens                                         #
+# ----------------------------------------------------------- #
+WRITE=1
+OPTREADARGS=1
+E_COLOR_CHOICE=
+# Paramètres gérant la récupération de configuration du chat  #
+# ----------------------------------------------------------- #
+LIGNE_CONFIG_USR=3
+LIGNE_CONFIG_USRCOLOR=4
+LIGNE_CONFIG_CHATCOLOR=5
+LIGNE_CONFIG_DISPLAYTIME=6
+LIGNE_CONFIG_CHATPATH=8
+LIGNE_CONFIG_HOSTASCHAT=9
+LIGNE_CONFIG_LCM=10
+# Codes d'erreur                                              #
+# ----------------------------------------------------------- #
+E_BAD_ARGS=20
+E_UNAUTHORIZED_ATTEMPT=21
+E_BAD_CHOICE=22
+
+#*************************************************************#
+#                     Récupération des paramètres             #
+#*************************************************************#
+# Création du fichier config si inexistant                    #
+# ----------------------------------------------------------- #
+touch $DEFAULT_CONFIG_PATH
+if [[ `sed -n 1p $DEFAULT_CONFIG_PATH`  == "" ]] ; then
+  echo "FICHIER_CONFIG" > "$DEFAULT_CONFIG_PATH"
+  echo "[MODIFIABLE]" >> $DEFAULT_CONFIG_PATH
+  echo "`whoami`" >> $DEFAULT_CONFIG_PATH
+  echo "\033[0m" >> $DEFAULT_CONFIG_PATH
+  echo "\033[0m" >> $DEFAULT_CONFIG_PATH
+  echo "1" >> $DEFAULT_CONFIG_PATH
+  echo "[NON MODIFIABLE]" >> $DEFAULT_CONFIG_PATH
+  echo "$DEFAULT_CHATPATH" >> $DEFAULT_CONFIG_PATH
+  echo "$DEFAULT_CONFIG_PATH" >> $DEFAULT_CONFIG_PATH
+  echo "$DEFAULT_HOST" >> $DEFAULT_CONFIG_PATH
+  echo "$DEFAULT_LINES_CHAT_MAX" >> $DEFAULT_CONFIG_PATH
+  echo "[FIN]" >> $DEFAULT_CONFIG_PATH
+  echo "Chat initialise par defaut"
+fi
+# Initialisation des variables par les valeurs de config      #
+# ----------------------------------------------------------- #
+CHATPATH="`sed -n $LIGNE_CONFIG_CHATPATH\p $DEFAULT_CONFIG_PATH`"
+USR="`sed -n $LIGNE_CONFIG_USR\p $DEFAULT_CONFIG_PATH`"
+USRCOLOR="`sed -n $LIGNE_CONFIG_USRCOLOR\p $DEFAULT_CONFIG_PATH`"
+CHATCOLOR="`sed -n $LIGNE_CONFIG_CHATCOLOR\p $DEFAULT_CONFIG_PATH`"
+DISPLAYTIME=`sed -n $LIGNE_CONFIG_DISPLAYTIME\p $DEFAULT_CONFIG_PATH`
+HOSTASCHAT="`sed -n $LIGNE_CONFIG_HOSTASCHAT\p $DEFAULT_CONFIG_PATH`"
+LINES_CHAT_MAX="`sed -n $LIGNE_CONFIG_LCM\p $DEFAULT_CONFIG_PATH`"
+
+#*************************************************************#
+#                     Fonctions                               #
+#*************************************************************#
+#                                                             #
+# ----------------------------------------------------------- #
+# display_error()                                             #
+# Affiche une erreur concernant les parametres fournis.       #
+# ----------------------------------------------------------- #
+display_error()
+{
+  case $1 in
+    couleur) create_border 25 ;
+      echo "* Couleur non reconnue, couleur par défaut activée *";
+      echo "* couleurs possibles :                             *";
+      echo -e  "* \033[31mrouge\033[0m, \033[32mvert\033[0m, \033[33mjaune\033[0m, \033[34mbleu\033[0m, \033[35mrose\033[0m, \033[36mcyan\033[0m, \033[37mgris\033[0m       *" ;
+      create_border 25 ;
+      E_COLOR_CHOICE=1 ;;
+    parametres) echo "ERREUR : parametres invalides !" >&2 ;
+      echo "utilisez l'option -h pour en savoir plus" >&2 ;
+      exit $E_BAD_ARGS ;;
+    mauvais_choix) echo "ERREUR : réponses possibles : y/n !" >&2 ;
+      echo "utilisez l'option -h pour en savoir plus" >&2 ;
+      exit $E_BAD_CHOICE ;;
+    pas_autorise) echo "Seul $HOSTASCHAT peut faire cette action";
+      exit $E_UNAUTHORIZED_ATTEMPT ;;
+  esac
+}
+
+yes_or_no()
+{
+  read choice
+  case $choice in
+    [yY] | [yY][Ee][Ss] ) yn_res=1 ;;
+    [nN] | [nN][oO] ) yn_res= ;;
+    ?) display_error mauvais_choix ;;
+  esac
+}
+
+# ----------------------------------------------------------- #
+# usage()                                                     #
+# Affiche l'usage de la commande aschat                       #
+# ----------------------------------------------------------- #
+#":r:w:equ:tc:g:pdh"
+function usage() {
+    cat << EOU
+
+                                        USAGE
+    aschat [-r LINES] [-w WORDS] [-u USERNAME] [-c USRCOLOR] [-g MSGCOLOR] [-S FILE] [-t] [mots]...
+
+    Si aucun argument n'est fourni, ouvre un terminal pour voir le chat en direct
+
+    [OPTIONS]
+      -r NBRLINES   lit les NBRLINES derniers messages du chat. Si 0 est envoyé en
+                    argument, lit tout le fichier .chat. Les autres arguments sont
+                    envoyés au chat. NBRLINES doit être composé de 3 digits !
+      -w WORDS   ecrit les mots WORDS dans le fichier .chat, cette option n'est pas
+                 nécessaire, ne pas mettre d'option aura le même effet
+      -u USERNAME    change le nom d'utilisateur en USERNAME. Les autres arguments
+                     sont envoyés au chat
+      -c USRCOLOR    change la couleur du nom de l'utilisateur en USRCOLOR. Les autres
+                     arguments sont envoyés au chat
+      -g MSGCOLOR    change la couleur des messages en MSGCOLOR. Les autres arguments
+                     sont envoyés au chat
+      -S FILE        sauvegarde le fichier de chat actuel dans le dossier courant sous
+                     le nom spécifié en paramètre
+      -t toggle DISPLAYTIME (active ou disactive l'affichage de l'heure)
+
+      -i réinitialise le chat
+      -e efface le chat tel un ninja dans la brume (seul l'hôte peut le faire)
+      -q affiche le nom de l'utilisateur courant
+      -p affiche le fichier de parametre .configaschat
+      -d réinitialise les paramètres du chat (contenus dans .configaschat)
+      -h affiche l'aide
+EOU
+    exit 0
+}
+#*************************************************************#
+#            Fonctions gérant le début/fin de session         #
+#*************************************************************#
+#                                                             #
+# ----------------------------------------------------------- #
+# connect()                                                   #
+# Permet de se connecter au poste de l'hôte du chat           #
+# ----------------------------------------------------------- #
+function connect()
+{
+  ssh `whoami`@$OPTARG
+  exit 0
+}
+
+# ----------------------------------------------------------- #
+# disconnect()                                                #
+# Permet de se déconnecter du poste de l'hôte du chat         #
+# ----------------------------------------------------------- #
+function disconnect()
+{
+  exit 0
+}
+
+#*************************************************************#
+#                 Fonctions de gestion du chat                #
+#*************************************************************#
+# ----------------------------------------------------------- #
+# create_border()                                             #
+# Crée une bordure à afficher                                 #
+# ----------------------------------------------------------- #
+function create_border()
+{
+  for i in `seq 0 $1` ;
+  do
+    echo -n "**"
+  done
+  echo ""
+}
+# ----------------------------------------------------------- #
+# refresh_vars()                                              #
+# Actualise les variables contenues dans .configChat          #
+# ----------------------------------------------------------- #
+function refresh_vars()
+{
+  CHATPATH="`sed -n $LIGNE_CONFIG_CHATPATH\p $DEFAULT_CONFIG_PATH`"
+  USR="`sed -n $LIGNE_CONFIG_USR\p $DEFAULT_CONFIG_PATH`"
+  USRCOLOR="`sed -n $LIGNE_CONFIG_USRCOLOR\p $DEFAULT_CONFIG_PATH`"
+  CHATCOLOR="`sed -n $LIGNE_CONFIG_CHATCOLOR\p $DEFAULT_CONFIG_PATH`"
+  DISPLAYTIME=`sed -n $LIGNE_CONFIG_DISPLAYTIME\p $DEFAULT_CONFIG_PATH`
+  HOSTASCHAT="`sed -n $LIGNE_CONFIG_HOSTASCHAT\p $DEFAULT_CONFIG_PATH`"
+  LINES_CHAT_MAX="`sed -n $LIGNE_CONFIG_LCM\p $DEFAULT_CONFIG_PATH`"
+}
+
+# ----------------------------------------------------------- #
+# reset_chat()                                              #
+# Réinitialise le fichier .chat                               #
+# ----------------------------------------------------------- #
+function reset_chat() {
+  create_border 37 > $CHATPATH
+  echo "*                  Bienvenue sur le chat     v$ASCHAT_VERSION                        *" >> $CHATPATH
+  echo "*                      ------------------------                            *" >> $CHATPATH
+  echo "* aschat seule permet de faire tout ce qui a été implémenté                *" >> $CHATPATH
+  echo "* Pour obtenir de l'aide utiliser l'option -h                              *" >> $CHATPATH
+  echo "* Merci de ne pas utiliser de commande pouvant modifier le  fichier .chat  *" >> $CHATPATH
+  echo "* Entourez les smileys de \" si vous souhaites les afficher                 *" >> $CHATPATH
+  echo "*                                                                 *" >> $CHATPATH
+  create_border 37 >> $CHATPATH
+  echo '<meta http-equiv="refresh" content="1" />' > $HTML_CHATPATH
+  echo '<script language=javascript>window.location="#ancre";</script>' >> $HTML_CHATPATH
+  echo 'temp' >> $HTML_CHATPATH
+  #Gestion de la page html du chat
+  if (($1)) ; then
+    wall "Début du chat par $USR"
+  else
+    wall "Le chat a été réinitialisé par $USR"
+  fi
+}
+
+# ----------------------------------------------------------- #
+# reset_chat_html()                                           #
+# Réinitialise le fichier .chat.html                          #
+# ----------------------------------------------------------- #
+function reset_chat_html() {
+  #echo '<head><meta charset ="utf-8"/><title >ASCHAT v2.0</title></head>' > $HTML_CHATPATH
+  echo '<meta http-equiv="refresh" content="1" />' >> $HTML_CHATPATH
+  echo '<script language=javascript>window.location="#ancre";</script>' >> $HTML_CHATPATH
+  echo 'temp' >> $HTML_CHATPATH
+}
+
+# ----------------------------------------------------------- #
+# read_chat()                                                 #
+# Affiche les N dernieres lignes du fichier .chat             #
+# ----------------------------------------------------------- #
+function read_chat()
+{
+  if [[ $1 == "" ]] ; then
+    cat $CHATPATH
+    exit 0;
+  else
+    if [[ $1 == "0" ]] ; then
+      cat $CHATPATH
+    else
+      if [[ $1 == [0-9][0-9][0-9] ]] ; then # On utilise des expressions régulières
+        tail -n$1 $CHATPATH
+      else
+        cat $CHATPATH
+        OPTREADARGS=
+        fi
+      fi
+  fi
+}
+
+# ----------------------------------------------------------------- #
+# initialise_TALK()                                                 #
+# Initialise la variable TALK qui sera ensuite injectée dans .chat  #
+# ------------------------------------------------------------------#
+function initialise_TALK()
+{
+  refresh_vars
+  if ((DISPLAYTIME)) ; then
+    TALK="$USRCOLOR`date +[%H:%M:%S]`"
+  fi
+  TALK="$TALK$USRCOLOR$USR\033[0m:$CHATCOLOR"
+}
+
+# ----------------------------------------------------------- #
+# check_chat_lines()                                          #
+# Vérifie si le fichier .chat n'est pas trop long             #
+# Permet d'éviter de surcharger la session                    #
+# La variable $LINES_CHAT_MAX détermine la taille max tolérée #
+# ----------------------------------------------------------- #
+function check_chat_lines()
+{
+  if [[ `wc -l $CHATPATH` == "     $LINES_CHAT_MAX $CHATPATH" ]] ; then
+    echo '' > $CHATPATH
+    wall "Le chat a été clear automatiquement car sa taille dépassait les $LINES_CHAT_MAX lignes"
+  fi
+}
+# ----------------------------------------------------------- #
+# erase_chat_lines()                                          #
+# Supprime le fichier chat sans laisser de traces             #
+# fonction du ninja                                           #
+# Seul l'hote du chat peut faire ça                           #
+# ----------------------------------------------------------- #
+function erase_chat_file()
+{
+  if [[ `whoami` == $HOSTASCHAT ]] ; then
+    echo "cela aura pour effet de supprimer le chat, etes vous sur ? (y/n)"
+    yes_or_no
+    if(($yn_res)) ; then
+      rm $CHATPATH
+      wall "Le chat a été supprimé par $USR, vous pouvez vous deconnecter ou relancer le chat"
+    fi
+  else
+    display_error pas_autorise
+  fi
+}
+#*************************************************************#
+#                   Fonctions de configuration                #
+#*************************************************************#
+#                                                             #
+# ----------------------------------------------------------- #
+# chose_color()                                               #
+# Configure la couleur du nom de l'utilisateur ou general     #
+# ----------------------------------------------------------- #
+function chose_color()
+{
+  local color_tmp
+  case $OPTARG in
+    rouge) color_tmp="\033[31m" ;;
+    vert) color_tmp="\033[32m" ;;
+    jaune) color_tmp="\033[33m" ;;
+    bleu)  color_tmp="\033[34m" ;;
+    rose) color_tmp="\033[35m" ;;
+    cyan) color_tmp="\033[36m" ;;
+    gris) color_tmp="\033[37m" ;;
+    d) color_tmp="\033[0m";;
+    *) color_tmp="\033[0m";
+       display_error "couleur" ;;
+  esac
+  if [[ $1 == "usrcolor" ]] ; then
+    USRCOLOR=$color_tmp
+  else
+    CHATCOLOR=$color_tmp
+  fi
+}
+
+
+# ----------------------------------------------------------- #
+# config_par_defaut()                                         #
+# Rétablit la configuration par défaut                        #
+# ----------------------------------------------------------- #
+function config_par_defaut()
+{
+  echo "FICHIER_CONFIG" > $DEFAULT_CONFIG_PATH
+  echo "[MODIFIABLE]" >> $DEFAULT_CONFIG_PATH
+  echo "`whoami`" >> $DEFAULT_CONFIG_PATH
+  echo "\033[0m" >> $DEFAULT_CONFIG_PATH
+  echo "\033[0m" >> $DEFAULT_CONFIG_PATH
+  echo "1" >> $DEFAULT_CONFIG_PATH
+  echo "[NON MODIFIABLE]" >> $DEFAULT_CONFIG_PATH
+  echo "$DEFAULT_CHATPATH" >> $DEFAULT_CONFIG_PATH
+  echo "$DEFAULT_HOST" >> $DEFAULT_CONFIG_PATH
+  echo "$DEFAULT_LINES_CHAT_MAX" >> $DEFAULT_CONFIG_PATH
+  echo "[FIN]" >> $DEFAULT_CONFIG_PATH
+}
+
+# ----------------------------------------------------------- #
+# refresh_config()                                            #
+# Actualise .configChat avec les variables courantes          #
+# ----------------------------------------------------------- #
+function refresh_config()
+{
+  echo "FICHIER_CONFIG" > $DEFAULT_CONFIG_PATH
+  echo "[MODIFIABLE]" >> $DEFAULT_CONFIG_PATH
+  echo "$USR" >> $DEFAULT_CONFIG_PATH
+  echo "$USRCOLOR" >> $DEFAULT_CONFIG_PATH
+  echo "$CHATCOLOR" >> $DEFAULT_CONFIG_PATH
+  echo "$DISPLAYTIME" >> $DEFAULT_CONFIG_PATH
+  echo "[NON MODIFIABLE]" >> $DEFAULT_CONFIG_PATH
+  echo "$CHATPATH" >> $DEFAULT_CONFIG_PATH
+  echo "$HOSTASCHAT" >> $DEFAULT_CONFIG_PATH
+  echo "$LINES_CHAT_MAX" >> $DEFAULT_CONFIG_PATH
+  echo "[FIN]" >> $DEFAULT_CONFIG_PATH
+}
+
+# ------------------------------------------------------------ #
+# display_config()                                             #
+# Affiche le fichier de configuration actuel et le rend lisble #
+# ------------------------------------------------------------ #
+function display_config()
+{
+  local cpt=0 # Respect du principe d'encapsulation
+  while read ligne
+  do
+    let "cpt=$cpt+1"
+    cpt="$cpt"
+    case $cpt in
+      3) echo -n "USR=";;
+      4) echo -n "USRCOLOR=";;
+      5) echo -n "CHATCOLOR=";;
+      6) echo -n "DISPLAYTIME=";;
+      8) echo -n "CHATPATH=";;
+      9) echo -n "HOSTASCHAT=";;
+      10) echo -n "DEFAULT_LINES_CHAT_MAX=";;
+    esac
+    echo "$ligne"
+  done < $DEFAULT_CONFIG_PATH
+}
+
+# ------------------------------------------------------------ #
+# display_html()                                               #
+# Affiche une page html qui s'actualise seule                  #
+# ------------------------------------------------------------ #
+function display_html()
+{
+  $DEFAULT_NAVIGATOR $HTML_CHATPATH &
+}
+
+#*************************************************************#
+#                    Fin des fonctions                        #
+#                                                             #
+#-------------------------------------------------------------#
+#                                                             #
+#*************************************************************#
+#                     Début du script                         #
+#*************************************************************#
+#                                                             #
+# On s'assure que le fichier chat existe                      #
+# ----------------------------------------------------------- #
+touch $CHATPATH
+# S'il est vide on l'initialise                               #
+# ----------------------------------------------------------- #
+if [[ `sed -n 1p $CHATPATH`  == "" ]] ; then
+  reset_chat 1
+  reset_chat_html
+  chmod o+rwx $CHATPATH
+fi
+#  Pas de paramètre : l'utilisateur écrit ce qu'il souhaite   #
+#-------------------------------------------------------------#
+if [ "$1" == "" ] ; then
+  xterm -e tail -f $CHATPATH &
+  exit 0
+fi
+
+#*************************************************************#
+#                     Traitement des options                  #
+#*************************************************************#
+while getopts ":rlw:iqu:S:tc:g:mpdeC:h" option;
+do
+  case $option in
+    # read
+    r)  read_chat $2;
+        if [ "$3" == "" ] ; then # Teste si l'utilisateur souhaite ecrire
+          WRITE=
+        fi
+        if (($OPTREADARGS)) ; then
+          shift
+        else
+          WRITE=1
+	      fi
+        shift ;;
+    # affiche page html
+    l) display_html;
+       exit 0 ;;
+    #write
+    w)  WRITE=1 ;;
+    #réinitialiser
+    i)  reset_chat 0 ;
+        exit 0;;
+    # Qui suis-je ?
+    q)  echo "Nom d'utilisateur actuel : $USR" ;
+        exit 0 ;;
+    # user
+    u)  USR="$OPTARG" ;
+        refresh_config ;
+        if [ "$3" == "" ] ; then # Teste si l'utilisateur souhaite ecrire
+          WRITE=
+          echo "Nom d'utilisateur : $OPTARG";
+        fi
+        shift ;;
+    #Save
+    S) cp $CHATPATH $OPTARG;
+       echo "Sauvegarde effectuée avec succès" ;
+       WRITE= ;
+       exit 0
+       ;;
+    # time
+    t)  DISPLAYTIME=$((1-DISPLAYTIME)) ;
+        refresh_config ;
+        if [ "$2" == "" ] ; then # Teste si l'utilisateur souhaite ecrire
+          WRITE=
+          if((DISPLAYTIME)) ; then
+            echo "Affichage de l'heure : ACTIVE";
+          else
+            echo "Affichage de l'heure : DESACTIVE";
+          fi
+        fi
+        shift;;
+    # color
+    c)  chose_color usrcolor;
+        refresh_config ;
+        if [ "$3" == "" ] ; then # Teste si l'utilisateur souhaite ecrire
+          WRITE=
+          if((!E_COLOR_CHOICE)) ; then
+            echo "Couleur choisie pour le nom d'utilisateur : $OPTARG";
+          fi
+        fi
+        shift ;;
+    # general (color)
+    g)  chose_color chatcolor;
+        refresh_config ;
+        if [ "$3" == "" ] ; then # Teste si l'utilisateur souhaite ecrire
+          WRITE=
+          echo "Couleur choisie pour les messages envoyés : $OPTARG";
+        fi
+          shift ;;
+    # parameters
+    p) display_config ;
+      #cat ~/bin/.configChat ;
+       exit 0 ;;
+    # default
+    d) config_par_defaut ;
+      echo "Paramètres par défaut choisis";
+      exit 0 ;;
+    # erase
+    e) erase_chat_file ;
+       exit 0 ;;
+    # Connect
+    C) connect;
+      exit 0;;
+    # Disconnect
+    D) disconnect;
+      exit 0 ;;
+    # help
+    h) usage ;;
+    ?) display_error "parametres";;
+  esac
+done
+#*************************************************************#
+#                     Fin des options                         #
+#                                                             #
+#-------------------------------------------------------------#
+# On passe l'index $OPTIND aux arguments suivant les options  #
+# Si pas d'options, on ne saute rien                          #
+if [[ $OPTIND > 1 ]] ; then
+  shift "$(($OPTIND-2))"
+fi
+# ------------------------------------------------------------#
+# Teste si l'autorisation d'ecrire est donnée                 #
+# Initialise la variable TALK dans la foulée                  #
+if (($WRITE)) ; then
+  initialise_TALK
+# ------------------------------------------------------------#
+# Boucle sur les différents mots donnés en arguments          #
+  for i in $* ; do
+    TALK="$TALK $i"
+  done
+# ------------------------------------------------------------#
+# Rétablissement de la couleur normale de la sortie standard  #
+  echo -e "$TALK\033[0m " >> $CHATPATH
+  #sed -i".bak" '/<a name="ancre">coucou</a>/d' $HTML_CHATPATH
+  mv $HTML_CHATPATH .tempChat
+  sed '$d' .tempChat >> $HTML_CHATPATH
+  echo -e "<p>$TALK\033[0m </p>" >> $HTML_CHATPATH
+  echo -e '<a name="ancre"></a>' >> $HTML_CHATPATH
+  rm .tempChat
+
+fi
+# ------------------------------------------------------------#
+# Vérifie si le fichier chat n'est pas trop long              #
+check_chat_lines
+#                                                             #
+#*************************************************************#
+#                     Fin du script                           #
+#                                                             #
+#-------------------------------------------------------------#
+
+# SOURCES :
+# Général site vivement recommandé : http://abs.traduc.org/abs-5.3-fr/index.html
+# Gestions des options et des arguments : https://linuxfr.org/forums/programmation-shell/posts/la-bonne-fa%C3%A7on-de-g%C3%A9rer-les-options-et-arguments-dans-un-shell
+# Pratiques à avoir en bash : http://ineumann.developpez.com/tutoriels/linux/bash-bonnes-pratiques/
